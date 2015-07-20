@@ -23,6 +23,7 @@ end
 
 chatsounds = {} local c = chatsounds
 local chatsounds = chatsounds
+local remoteURL = "http://ENTER_URL_HERE/"; --ENTER URL of your hosted sounds
 
 
 chatsounds.AutoAddPath = "chatsounds/autoadd/"
@@ -968,7 +969,16 @@ function chatsounds.GetSoundDuration(path)
 		if IsValid(chan) then
 			len = chan:GetLength()
 		else
-			ErrorNoHalt("Bass error(" .. err .. ") on " .. path)
+			BASS.StreamFileURL( remoteURL .. path, function( channel, err )
+				if IsValid(channel) then
+					c.ExistsCache[remoteURL .. path] = true
+					len = channel:GetLength()
+					ErrorNoHalt("Bass error(" .. len .. ") on " .. path)
+				else
+					c.ExistsCache[remoteURL .. path] = false
+					ErrorNoHalt("Bass error(" .. err .. ") on " .. path)
+				end				
+			end, true, false )
 		end
 
 		return len or 1
@@ -979,13 +989,16 @@ function chatsounds.GetSoundDuration(path)
 end
 
 function chatsounds.SoundExists(path)
-	if c.ExistsCache[path] then return false end
+	if c.ExistsCache[path] then return c.ExistsCache[path] end
 
-	if not file.Exists("sound/" .. path, "GAME") then
+	if file.Exists("sound/" .. path, "GAME") then
 		c.ExistsCache[path] = true
-		return false
+		return true
+	else
+		c.ExistsCache[path] = false
+		return false		
 	end
-	return true
+
 end
 
 function chatsounds.ClearExistsCache()
@@ -1259,12 +1272,38 @@ function chatsounds.PlaySound(chtsnd, id)
 
 	if hook.Call("PreChatSound", GAMEMODE, chtsnd) == false then return end
 
-	if chtsnd:GetPitch() <= 0 or not c.SoundExists(chtsnd:GetSoundPath()) or not chtsnd:IsValid() then return end
+	--if chtsnd:GetPitch() <= 0 or not c.SoundExists(chtsnd:GetSoundPath()) or not chtsnd:IsValid() then return end
 
 	local distortion = (chtsnd:GetDistortionLevel() or 1)
 	local sound_level = math.Clamp(math.Clamp(GetVolume() + distortion, GetVolume(), 160)*chtsnd:GetVolume(), 1, 160)
 	local pitch = math.Clamp(chtsnd:GetPitch(), 0, 255)
 	local ply = chtsnd:GetPlayer()
+	
+	if chtsnd:GetPitch() <= 0 or not c.SoundExists(chtsnd:GetSoundPath()) or not chtsnd:IsValid() then
+	
+		--try to stream from remote
+			local url = remoteURL .. chtsnd:GetSoundPath()
+			local myStream
+
+			if IsValid(myStream) then
+				myStream:Remove()
+			end
+
+			local function callback(stream, error)
+				if IsValid(stream) then
+					myStream=stream
+					print('Pitch: ' .. tostring(math.Clamp(1*(chtsnd:GetPitch()), -100, 100)))
+					print('Volume2: ' .. tostring(sound_level))
+					stream:SetPlaybackRate(math.Clamp(1*(chtsnd:GetPitch()), -100, 100))
+					stream:SetVolume(50)          
+					stream:Play()
+				end
+			end
+
+			sound.PlayURL( url, '', callback)
+	
+		return
+	end
 	
 
 	if chtsnd:GetMode() == CHTSND_MODE_WORLDSOUND then
